@@ -1,0 +1,617 @@
+-- Enable UUID generation
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+
+-- =====================================================
+-- USERS
+-- =====================================================
+
+CREATE TABLE users (
+id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+full_name VARCHAR(255) NOT NULL,
+email VARCHAR(255) UNIQUE NOT NULL,
+password_hash TEXT NOT NULL,
+phone VARCHAR(30),
+
+role VARCHAR(20) NOT NULL
+    CHECK (role IN ('admin', 'seller', 'customer')),
+
+created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+
+);
+
+-- =====================================================
+-- SELLERS
+-- =====================================================
+
+CREATE TABLE sellers (
+id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+user_id UUID UNIQUE NOT NULL
+    REFERENCES users(id) ON DELETE CASCADE,
+
+store_name VARCHAR(255) NOT NULL,
+store_description TEXT,
+
+bank_name VARCHAR(255),
+account_name VARCHAR(255),
+account_number VARCHAR(50),
+
+paystack_recipient_code VARCHAR(255),
+
+is_verified BOOLEAN DEFAULT FALSE,
+
+created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+
+);
+
+-- =====================================================
+-- CATEGORIES
+-- =====================================================
+
+CREATE TABLE categories (
+id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+name VARCHAR(255) UNIQUE NOT NULL,
+slug VARCHAR(255) UNIQUE NOT NULL,
+
+description TEXT,
+
+status VARCHAR(20) DEFAULT 'active'
+    CHECK (status IN ('active', 'inactive')),
+
+created_by UUID
+    REFERENCES users(id),
+
+created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- =====================================================
+-- CATEGORY REQUESTS
+-- =====================================================
+
+CREATE TABLE category_requests (
+id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+seller_id UUID NOT NULL
+    REFERENCES sellers(id),
+
+name VARCHAR(255) NOT NULL,
+description TEXT,
+
+status VARCHAR(20) DEFAULT 'pending'
+    CHECK (status IN ('pending', 'approved', 'rejected')),
+
+reviewed_by UUID
+    REFERENCES users(id),
+
+reviewed_at TIMESTAMP,
+
+rejection_reason TEXT,
+
+created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+
+);
+
+-- =====================================================
+-- PRODUCTS
+-- =====================================================
+
+CREATE TABLE products (
+id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+seller_id UUID NOT NULL
+    REFERENCES sellers(id),
+
+name VARCHAR(255) NOT NULL,
+slug VARCHAR(255) UNIQUE NOT NULL,
+
+description TEXT,
+
+price NUMERIC(12,2) NOT NULL,
+stock_quantity INTEGER DEFAULT 0,
+
+featured_image TEXT,
+how_to_use TEXT,
+
+status VARCHAR(20) DEFAULT 'pending'
+    CHECK (status IN ('pending', 'approved', 'rejected')),
+
+approved_by UUID
+    REFERENCES users(id),
+
+approved_at TIMESTAMP,
+
+created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+
+);
+
+-- =====================================================
+-- PRODUCT CATEGORIES
+-- =====================================================
+
+CREATE TABLE product_categories (
+product_id UUID NOT NULL
+REFERENCES products(id) ON DELETE CASCADE,
+
+category_id UUID NOT NULL
+    REFERENCES categories(id) ON DELETE CASCADE,
+
+PRIMARY KEY(product_id, category_id)
+
+);
+
+-- =====================================================
+-- BLOG POSTS
+-- =====================================================
+
+CREATE TABLE blog_posts (
+id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+author_id UUID NOT NULL
+    REFERENCES users(id),
+
+title VARCHAR(255) NOT NULL,
+slug VARCHAR(255) UNIQUE NOT NULL,
+
+excerpt TEXT,
+content TEXT NOT NULL,
+
+featured_image TEXT,
+
+status VARCHAR(20) DEFAULT 'draft'
+    CHECK (status IN ('draft', 'published')),
+
+published_at TIMESTAMP,
+
+created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+
+);
+
+-- =====================================================
+-- BLOG CATEGORIES
+-- =====================================================
+
+CREATE TABLE blog_categories (
+blog_id UUID NOT NULL
+REFERENCES blog_posts(id) ON DELETE CASCADE,
+category_id UUID NOT NULL
+    REFERENCES categories(id) ON DELETE CASCADE,
+
+PRIMARY KEY(blog_id, category_id)
+);
+
+-- =====================================================
+-- CHECKOUTS
+-- =====================================================
+
+CREATE TABLE checkouts (
+id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+user_id UUID NOT NULL
+    REFERENCES users(id),
+
+total_amount NUMERIC(12,2) NOT NULL,
+
+payment_status VARCHAR(20) DEFAULT 'pending'
+    CHECK (
+        payment_status IN (
+            'pending',
+            'paid',
+            'failed',
+            'refunded'
+        )
+    ),
+
+order_status VARCHAR(20) DEFAULT 'processing'
+    CHECK (
+        order_status IN (
+            'processing',
+            'shipped',
+            'delivered',
+            'cancelled'
+        )
+    ),
+
+paystack_reference VARCHAR(255) UNIQUE,
+
+created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+
+);
+
+-- =====================================================
+-- ORDERS
+-- =====================================================
+
+CREATE TABLE orders (
+id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+checkout_id UUID NOT NULL
+    REFERENCES checkouts(id) ON DELETE CASCADE,
+
+product_id UUID NOT NULL
+    REFERENCES products(id),
+
+seller_id UUID NOT NULL
+    REFERENCES sellers(id),
+
+quantity INTEGER NOT NULL,
+
+unit_price NUMERIC(12,2) NOT NULL,
+subtotal NUMERIC(12,2) NOT NULL,
+
+commission_amount NUMERIC(12,2) NOT NULL,
+seller_earning NUMERIC(12,2) NOT NULL,
+
+created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+
+);
+
+-- =====================================================
+-- REVIEWS
+-- =====================================================
+
+CREATE TABLE reviews (
+id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+user_id UUID NOT NULL
+    REFERENCES users(id),
+
+product_id UUID NOT NULL
+    REFERENCES products(id) ON DELETE CASCADE,
+
+rating INTEGER NOT NULL
+    CHECK (rating BETWEEN 1 AND 5),
+
+review TEXT,
+
+created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+UNIQUE(user_id, product_id)
+
+);
+
+-- =====================================================
+-- SELLER WALLETS
+-- =====================================================
+
+CREATE TABLE seller_wallets (
+seller_id UUID PRIMARY KEY
+REFERENCES sellers(id) ON DELETE CASCADE,
+
+lifetime_sales NUMERIC(12,2) DEFAULT 0,
+lifetime_commissions NUMERIC(12,2) DEFAULT 0,
+
+available_balance NUMERIC(12,2) DEFAULT 0,
+pending_balance NUMERIC(12,2) DEFAULT 0,
+
+updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+
+);
+
+-- =====================================================
+-- WITHDRAWAL REQUESTS
+-- =====================================================
+
+CREATE TABLE withdrawal_requests (
+id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+seller_id UUID NOT NULL
+    REFERENCES sellers(id),
+
+amount NUMERIC(12,2) NOT NULL,
+
+status VARCHAR(20) DEFAULT 'pending'
+    CHECK (
+        status IN (
+            'pending',
+            'approved',
+            'rejected',
+            'paid'
+        )
+    ),
+
+created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+approved_at TIMESTAMP
+
+);
+
+-- =====================================================
+-- SELLER PAYOUTS
+-- =====================================================
+
+CREATE TABLE seller_payouts (
+id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+seller_id UUID NOT NULL
+    REFERENCES sellers(id),
+
+withdrawal_request_id UUID
+    REFERENCES withdrawal_requests(id),
+
+amount NUMERIC(12,2) NOT NULL,
+
+paystack_transfer_code VARCHAR(255),
+
+status VARCHAR(20) DEFAULT 'pending'
+    CHECK (
+        status IN (
+            'pending',
+            'success',
+            'failed'
+        )
+    ),
+
+created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+
+);
+
+
+ALTER TABLE products
+ADD COLUMN average_rating DECIMAL(3,2) DEFAULT 0.00,
+ADD COLUMN review_count INTEGER DEFAULT 0;
+CREATE OR REPLACE FUNCTION update_product_rating(
+    p_product_id UUID
+)
+RETURNS VOID
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    UPDATE products
+    SET
+        average_rating = COALESCE(
+            (
+                SELECT ROUND(AVG(rating)::numeric, 2)
+                FROM reviews
+                WHERE product_id = p_product_id
+            ),
+            0
+        ),
+        review_count = (
+            SELECT COUNT(*)
+            FROM reviews
+            WHERE product_id = p_product_id
+        )
+    WHERE id = p_product_id;
+END;
+$$;
+CREATE OR REPLACE FUNCTION review_insert_trigger()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    PERFORM update_product_rating(NEW.product_id);
+    RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER trg_review_insert
+AFTER INSERT ON reviews
+FOR EACH ROW
+EXECUTE FUNCTION review_insert_trigger();
+CREATE OR REPLACE FUNCTION review_update_trigger()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    PERFORM update_product_rating(NEW.product_id);
+    RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER trg_review_update
+AFTER UPDATE ON reviews
+FOR EACH ROW
+EXECUTE FUNCTION review_update_trigger();
+CREATE OR REPLACE FUNCTION review_delete_trigger()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    PERFORM update_product_rating(OLD.product_id);
+    RETURN OLD;
+END;
+$$;
+
+CREATE TRIGGER trg_review_delete
+AFTER DELETE ON reviews
+FOR EACH ROW
+EXECUTE FUNCTION review_delete_trigger();
+
+ALTER TABLE sellers
+ADD COLUMN bank_code VARCHAR(5)
+CHECK (bank_code ~ '^[0-9]{1,5}$');
+
+CREATE TABLE earnings_ledger (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+    order_id UUID REFERENCES orders(id),
+
+    seller_id UUID REFERENCES sellers(id),
+
+    amount NUMERIC(12,2) NOT NULL,
+
+    entry_type VARCHAR(20) NOT NULL
+    CHECK (
+        entry_type IN (
+            'credit',
+            'debit'
+        )
+    ),
+
+    source_type VARCHAR(30) NOT NULL
+    CHECK (
+        source_type IN (
+            'seller_sale',
+            'platform_sale',
+            'commission',
+            'withdrawal',
+            'refund'
+        )
+    ),
+
+    beneficiary_type VARCHAR(20) NOT NULL
+    CHECK (
+        beneficiary_type IN (
+            'seller',
+            'platform'
+        )
+    ),
+
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_ledger_seller_id
+ON earnings_ledger(seller_id);
+
+CREATE INDEX idx_ledger_source_type
+ON earnings_ledger(source_type);
+
+CREATE INDEX idx_ledger_type
+ON earnings_ledger(entry_type);
+
+CREATE INDEX idx_ledger_beneficiary
+ON earnings_ledger(beneficiary_type);
+
+CREATE INDEX idx_ledger_created_at
+ON earnings_ledger(created_at);
+
+CREATE INDEX idx_ledger_seller_date
+ON earnings_ledger(seller_id, created_at);
+
+CREATE INDEX idx_payouts_seller_id
+ON seller_payouts(seller_id);
+
+CREATE INDEX idx_payouts_status
+ON seller_payouts(status);
+
+CREATE INDEX idx_withdrawal_seller_id
+ON withdrawal_requests(seller_id);
+
+CREATE INDEX idx_withdrawal_status
+ON withdrawal_requests(status);
+
+CREATE INDEX idx_checkouts_user_id
+ON checkouts(user_id);
+
+CREATE INDEX idx_checkouts_payment_status
+ON checkouts(payment_status);
+
+CREATE INDEX idx_checkouts_order_status
+ON checkouts(order_status);
+
+CREATE INDEX idx_checkouts_created_at
+ON checkouts(created_at);
+
+CREATE INDEX idx_reviews_product_id
+ON reviews(product_id);
+
+CREATE INDEX idx_products_seller_id
+ON products(seller_id);
+
+CREATE INDEX idx_products_status
+ON products(status);
+
+CREATE INDEX idx_products_created_at
+ON products(created_at);
+
+CREATE INDEX idx_orders_seller_id
+ON orders(seller_id);
+
+CREATE INDEX idx_orders_checkout_id
+ON orders(checkout_id);
+
+CREATE INDEX idx_orders_created_at
+ON orders(created_at);
+
+ALTER TABLE sellers
+ADD COLUMN commission_rate NUMERIC(5,2) DEFAULT 15.00;
+
+-- =====================================================
+-- DEFAULT CATEGORY
+-- =====================================================
+
+INSERT INTO categories (
+    id,
+    name,
+    slug,
+    description,
+    status,
+    created_by
+)
+VALUES (
+    '00000000-0000-0000-0000-000000000001',
+    'Others',
+    'others',
+    'Default category used when no specific category is selected.',
+    'active',
+    NULL
+)
+ON CONFLICT (slug) DO NOTHING;
+
+ALTER TABLE checkouts
+ADD COLUMN paystack_access_code TEXT,
+ADD COLUMN payment_initialized_at TIMESTAMPTZ;
+ADD COLUMN payment_verified_at TIMESTAMPTZ;
+
+ALTER TABLE blog_posts
+ALTER COLUMN featured_image TYPE JSONB
+USING featured_image::jsonb;
+
+ALTER TABLE products
+ALTER COLUMN featured_image TYPE JSONB
+USING featured_image::jsonb;
+
+ALTER TABLE reviews
+ADD COLUMN updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+ALTER TABLE withdrawal_requests
+DROP CONSTRAINT withdrawal_requests_status_check;
+
+ALTER TABLE withdrawal_requests
+ADD CONSTRAINT withdrawal_requests_status_check
+CHECK (
+    status IN (
+        'pending',
+        'processing',
+        'paid',
+        'failed',
+        'rejected'
+    )
+);
+ALTER TABLE withdrawal_requests
+ADD COLUMN processed_at TIMESTAMPTZ,
+ADD COLUMN failure_reason TEXT,
+ADD COLUMN paystack_reference TEXT,
+ADD COLUMN paystack_transfer_code TEXT;
+CREATE INDEX idx_withdrawal_created_at
+ON withdrawal_requests(created_at DESC);
+ALTER TABLE seller_payouts
+ADD COLUMN paystack_reference TEXT;
+CREATE UNIQUE INDEX idx_single_pending_withdrawal
+ON withdrawal_requests(seller_id)
+WHERE status IN ('pending', 'processing');
+ALTER TABLE seller_wallets
+ADD COLUMN reserved_balance NUMERIC(12,2) DEFAULT 0;
+CREATE TABLE seller_pending_earnings (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+    seller_id UUID NOT NULL
+        REFERENCES sellers(id) ON DELETE CASCADE,
+
+    order_id UUID NOT NULL
+        REFERENCES orders(id) ON DELETE CASCADE,
+
+    amount NUMERIC(12,2) NOT NULL,
+
+    available_at TIMESTAMPTZ NOT NULL,
+
+    released BOOLEAN DEFAULT FALSE,
+
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_pending_earnings_release
+ON seller_pending_earnings(available_at);
+
+CREATE INDEX idx_pending_earnings_seller
+ON seller_pending_earnings(seller_id);
