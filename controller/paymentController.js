@@ -419,7 +419,7 @@ beneficiary_type
 
     try {
       await sendEmail({
-        to: 'oluwatimileyinadeosun@gmail.com',
+        to: buyer.email,
         subject: "Your order has been confirmed",
         html: buyerOrderEmail({
           customerName: buyer.full_name,
@@ -914,7 +914,7 @@ export default {
 
       const sellerResult = await client.query(
         `
-      SELECT id
+      SELECT *
       FROM sellers
       WHERE user_id = $1
       `,
@@ -926,6 +926,13 @@ export default {
 
         return res.status(404).json({
           message: "Seller account not found.",
+        });
+      }
+      if (sellerResult.rows[0].is_verified === false) {
+        await client.query("ROLLBACK");
+
+        return res.status(404).json({
+          message: "Seller bank not verified.",
         });
       }
 

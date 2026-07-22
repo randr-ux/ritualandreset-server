@@ -7,11 +7,14 @@ const { Pool } = pg;
 
 const pool = new Pool({
   connectionString: process.env.DB_URL,
-    ssl: { rejectUnauthorized: false},
+    ssl: {
+      rejectUnauthorized: false,
+    }
 });
 
+
 pool.on("connect", () => {
-  console.log("Connected to Supabase PostgreSQL");
+  console.log("Connected to render PostgreSQL");
 });
 
 pool.on("error", (err) => {

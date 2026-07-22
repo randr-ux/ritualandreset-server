@@ -18,9 +18,6 @@ export default {
       // Seller fields
       store_name,
       store_description,
-      bank_name,
-      bank_code,
-      account_number,
     } = req.body;
 
     if (!full_name || !email || !password || !role) {
@@ -87,76 +84,24 @@ export default {
       );
 
       const user = userResult.rows[0];
-
       // =============================
       // SELLER
       // =============================
       if (role === "seller") {
-        // Resolve account
-        const verifyResponse = await axios.get(
-          "https://api.paystack.co/bank/resolve",
-          {
-            params: {
-              account_number,
-              bank_code,
-            },
-            headers: {
-              Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
-            },
-          },
-        );
-
-        const accountName = verifyResponse.data.data.account_name;
-
-        // Create transfer recipient
-        const recipientResponse = await axios.post(
-          "https://api.paystack.co/transferrecipient",
-          {
-            type: "nuban",
-            name: accountName,
-            account_number,
-            bank_code,
-            currency: "NGN",
-          },
-          {
-            headers: {
-              Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
-            },
-          },
-        );
-
-        const recipientCode = recipientResponse.data.data.recipient_code;
-
-        // Create seller profile
         const sellerResult = await pool.query(
           `
-        INSERT INTO sellers
-        (
-          user_id,
-          store_name,
-          store_description,
-          bank_name,
-          bank_code,
-          account_name,
-          account_number,
-          paystack_recipient_code,
-          is_verified
-        )
-        VALUES
-        ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-        RETURNING id
-        `,
-          [
-            user.id,
-            store_name,
-            store_description || null,
-            bank_name,
-            bank_code,
-            accountName,
-            account_number,
-            recipientCode,
-            true,
-          ],
+    INSERT INTO sellers
+    (
+      user_id,
+      store_name,
+      store_description,
+      is_verified
+    )
+    VALUES
+    ($1, $2, $3, $4)
+    RETURNING id
+    `,
+          [user.id, store_name, store_description || null, false],
         );
 
         const sellerId = sellerResult.rows[0].id;
@@ -164,14 +109,12 @@ export default {
         // Create seller wallet
         await pool.query(
           `
-        INSERT INTO seller_wallets
-        (seller_id)
-        VALUES ($1)
-        `,
+    INSERT INTO seller_wallets (seller_id)
+    VALUES ($1)
+    `,
           [sellerId],
         );
       }
-
       await pool.query("COMMIT");
 
       const token = jwt.sign(
@@ -343,6 +286,153 @@ export default {
 
       return res.status(500).json({
         message: "Unable to fetch bank list",
+      });
+    }
+  },
+  verifySellerBank: async (req, res) => {
+    const { bank_name, bank_code, account_number, country } = req.body;
+    const userId = req.user.id;
+
+    if (!country) {
+      return res.status(400).json({
+        message: "Country is required",
+      });
+    }
+
+    try {
+      // Find seller profile
+      const sellerResult = await pool.query(
+        "SELECT id FROM sellers WHERE user_id = $1",
+        [userId],
+      );
+
+      if (sellerResult.rowCount === 0) {
+        return res.status(404).json({
+          message: "Seller profile not found",
+        });
+      }
+
+      const sellerId = sellerResult.rows[0].id;
+
+      let accountName;
+      let recipientCode;
+      let finalBankName = bank_name || null;
+      let finalBankCode = bank_code || null;
+      let finalAccountNumber = account_number || null;
+
+      // If seller is NOT Nigerian, use admin bank details
+      if (country.toLowerCase() !== "nigeria") {
+        const adminResult = await pool.query(
+          `
+        SELECT
+          s.bank_name,
+          s.bank_code,
+          s.account_name,
+          s.account_number,
+          s.paystack_recipient_code
+        FROM sellers s
+        JOIN users u ON s.user_id = u.id
+        WHERE u.role = 'admin'
+        LIMIT 1
+        `,
+        );
+
+        if (adminResult.rowCount === 0) {
+          return res.status(500).json({
+            message: "Admin bank details not configured",
+          });
+        }
+
+        const adminBank = adminResult.rows[0];
+
+        accountName = adminBank.account_name;
+        recipientCode = adminBank.paystack_recipient_code;
+        finalBankName = adminBank.bank_name;
+        finalBankCode = adminBank.bank_code;
+        finalAccountNumber = adminBank.account_number;
+      } else {
+        // Nigerian seller - verify account with Paystack
+        if (!bank_name || !bank_code || !account_number) {
+          return res.status(400).json({
+            message: "Bank name, bank code and account number are required",
+          });
+        }
+
+        // Resolve account
+        const verifyResponse = await axios.get(
+          "https://api.paystack.co/bank/resolve",
+          {
+            params: {
+              account_number,
+              bank_code,
+            },
+            headers: {
+              Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
+            },
+          },
+        );
+
+        accountName = verifyResponse.data.data.account_name;
+
+        // Create transfer recipient
+        const recipientResponse = await axios.post(
+          "https://api.paystack.co/transferrecipient",
+          {
+            type: "nuban",
+            name: accountName,
+            account_number,
+            bank_code,
+            currency: "NGN",
+          },
+          {
+            headers: {
+              Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
+            },
+          },
+        );
+
+        recipientCode = recipientResponse.data.data.recipient_code;
+      }
+
+      // Update seller bank details
+      await pool.query(
+        `
+      UPDATE sellers
+      SET
+        bank_name = $1,
+        bank_code = $2,
+        account_name = $3,
+        account_number = $4,
+        paystack_recipient_code = $5,
+        is_verified = true,
+        updated_at = NOW()
+      WHERE id = $6
+      `,
+        [
+          finalBankName,
+          finalBankCode,
+          accountName,
+          finalAccountNumber,
+          recipientCode,
+          sellerId,
+        ],
+      );
+
+      return res.status(200).json({
+        message: "Bank details verified successfully",
+        account_name: accountName,
+      });
+    } catch (error) {
+      console.error(
+        "Seller bank verification error:",
+        error,
+      );
+
+      return res.status(500).json({
+        message:
+          error.response?.data?.message ||
+          error.message ||
+          "Bank verification failed",
       });
     }
   },

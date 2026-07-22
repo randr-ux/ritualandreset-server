@@ -531,24 +531,6 @@ ADD COLUMN commission_rate NUMERIC(5,2) DEFAULT 15.00;
 -- DEFAULT CATEGORY
 -- =====================================================
 
-INSERT INTO categories (
-    id,
-    name,
-    slug,
-    description,
-    status,
-    created_by
-)
-VALUES (
-    '00000000-0000-0000-0000-000000000001',
-    'Others',
-    'others',
-    'Default category used when no specific category is selected.',
-    'active',
-    NULL
-)
-ON CONFLICT (slug) DO NOTHING;
-
 ALTER TABLE checkouts
 ADD COLUMN paystack_access_code TEXT,
 ADD COLUMN payment_initialized_at TIMESTAMPTZ;
