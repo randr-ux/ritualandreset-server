@@ -21,7 +21,7 @@ import dashboardRoutes from "./routes/dashboardRoutes.js";
 // Middleware
 app.use(
   cors({
-    origin: "http://localhost:5173",
+    origin: "https://ritualandreset.com",
     credentials: true,
   }),
 );
