@@ -34,7 +34,7 @@ export default {
 
     // Seller validation
     if (role === "seller") {
-      if (!store_name || !bank_name || !bank_code || !account_number) {
+      if (!store_name ) {
         return res.status(400).json({
           message:
             "Store name, bank, bank code and account number are required for sellers.",
